@@ -10,7 +10,28 @@ void main() => runApp(const MyApp());
 
 //List<double> width = List.generate(10, (index) => 200);
 
-List<double> width = [100, 200, 150, 200, 120, 110, 130, 150, 200, 200,100, 200, 150, 200, 120, 110, 130, 150, 200, 200,];
+List<double> width = [
+  100,
+  200,
+  150,
+  200,
+  120,
+  110,
+  130,
+  150,
+  200,
+  200,
+  100,
+  200,
+  150,
+  200,
+  120,
+  110,
+  130,
+  150,
+  200,
+  200,
+];
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -27,7 +48,7 @@ class MyApp extends StatelessWidget {
         dragDevices: PointerDeviceKind.values.toSet(),
       ),
       debugShowCheckedModeBanner: false,
-      home:  MyHomePage(title: 'Two Dimension Scrollable'),
+      home: MyHomePage(title: 'Two Dimension Scrollable'),
     );
   }
 }
@@ -37,7 +58,7 @@ class MyHomePage extends StatelessWidget {
   final ScrollController _horizontalController = ScrollController();
   final ScrollController _verticalController = ScrollController();
 
-   MyHomePage({
+  MyHomePage({
     Key? key,
     required this.title,
   }) : super(key: key);
@@ -55,10 +76,13 @@ class MyHomePage extends StatelessWidget {
           trackVisibility: true,
           thumbVisibility: true,
           child: TwoDimensionalGridView(
-            horizontalDetails: ScrollableDetails.horizontal(controller: _horizontalController),
-            verticalDetails: ScrollableDetails.vertical(controller: _verticalController),
+            horizontalDetails:
+                ScrollableDetails.horizontal(controller: _horizontalController),
+            verticalDetails:
+                ScrollableDetails.vertical(controller: _verticalController),
             diagonalDragBehavior: DiagonalDragBehavior.free,
             widths: width,
+            pinColumnCount: 1,
             delegate: TwoDimensionalChildBuilderDelegate(
                 maxXIndex: 19,
                 maxYIndex: 19,
@@ -74,8 +98,9 @@ class MyHomePage extends StatelessWidget {
                         : width[vicinity.yIndex] + 50,
                     width: width[vicinity.xIndex],
                     child: Center(
-                        child: Text(
-                            'Row ${vicinity.yIndex}: Column ${vicinity.xIndex}')),
+                      child: Text(
+                          'Row ${vicinity.yIndex}: Column ${vicinity.xIndex}'),
+                    ),
                   );
                 }),
           ),
@@ -99,14 +124,17 @@ class TwoDimensionalGridView extends TwoDimensionalScrollView {
     super.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
     super.clipBehavior = Clip.hardEdge,
     required this.widths,
+    required this.pinColumnCount,
   }) : super(delegate: delegate);
   final List<double> widths;
+  final int pinColumnCount;
+
   @override
   Widget buildViewport(
-      BuildContext context,
-      ViewportOffset verticalOffset,
-      ViewportOffset horizontalOffset,
-      ) {
+    BuildContext context,
+    ViewportOffset verticalOffset,
+    ViewportOffset horizontalOffset,
+  ) {
     return TwoDimensionalGridViewport(
       horizontalOffset: horizontalOffset,
       horizontalAxisDirection: horizontalDetails.direction,
@@ -117,6 +145,7 @@ class TwoDimensionalGridView extends TwoDimensionalScrollView {
       cacheExtent: cacheExtent,
       clipBehavior: clipBehavior,
       widths: widths,
+      pinColumnCount: pinColumnCount,
     );
   }
 }
@@ -131,10 +160,14 @@ class TwoDimensionalGridViewport extends TwoDimensionalViewport {
     required TwoDimensionalChildBuilderDelegate super.delegate,
     required super.mainAxis,
     required this.widths,
+    required this.pinColumnCount,
     super.cacheExtent,
     super.clipBehavior = Clip.hardEdge,
   });
+
   final List<double> widths;
+  final int pinColumnCount;
+
   @override
   RenderTwoDimensionalViewport createRenderObject(BuildContext context) {
     return RenderTwoDimensionalGridViewport(
@@ -148,14 +181,15 @@ class TwoDimensionalGridViewport extends TwoDimensionalViewport {
       cacheExtent: cacheExtent,
       clipBehavior: clipBehavior,
       widths: width,
+      pinColumnCount: pinColumnCount,
     );
   }
 
   @override
   void updateRenderObject(
-      BuildContext context,
-      RenderTwoDimensionalGridViewport renderObject,
-      ) {
+    BuildContext context,
+    RenderTwoDimensionalGridViewport renderObject,
+  ) {
     renderObject
       ..horizontalOffset = horizontalOffset
       ..horizontalAxisDirection = horizontalAxisDirection
@@ -178,12 +212,19 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     required super.mainAxis,
     required super.childManager,
     required this.widths,
+    required this.pinColumnCount,
     super.cacheExtent,
     super.clipBehavior = Clip.hardEdge,
   }) : super(delegate: delegate);
 
   List<double> rowHeightList = [];
-  final List<double> widths;
+  List<double> widths;
+  ChildVicinity? lastNonPin;
+  ChildVicinity? firstNonPin;
+  ChildVicinity? firstPin;
+  ChildVicinity? lastPin;
+  final int pinColumnCount;
+  double pinColumnWidth = 0;
 
   @override
   void layoutChildSequence() {
@@ -193,7 +234,7 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     final double viewportWidth = viewportDimension.width + cacheExtent;
 
     final TwoDimensionalChildBuilderDelegate builderDelegate =
-    delegate as TwoDimensionalChildBuilderDelegate;
+        delegate as TwoDimensionalChildBuilderDelegate;
     final int maxRowIndex = builderDelegate.maxYIndex!;
     final int maxColumnIndex = builderDelegate.maxXIndex!;
 
@@ -201,29 +242,43 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     final int leadingRow = _calculateLeadingRow(verticalPixels, rowHeightList);
     double remainingHeight = viewportHeight;
     double yLayoutOffset =
-    calculateOffset(rowHeightList, leadingRow, verticalOffset.pixels);
+        calculateOffset(rowHeightList, leadingRow, verticalOffset.pixels);
     final int trailingColumn = findTrailingColumn(
         horizontalPixels, viewportWidth, width, maxColumnIndex);
     int row = leadingRow;
     while (remainingHeight > 0 && row <= maxRowIndex) {
-      double xLayoutOffset =
-      calculateOffset(width, leadingColumn, horizontalOffset.pixels);
+      double xLayoutOffset = calculateOffset(
+        width,
+        leadingColumn,
+        horizontalOffset.pixels,
+      );
       List<double> heightList = [];
-      List<RenderBox?> childList = List.filled(trailingColumn - leadingColumn + 1, null);
+      List<RenderBox?> childList =
+          List.filled(trailingColumn - leadingColumn + 1, null);
       for (int column = leadingColumn; column <= trailingColumn; column++) {
         final ChildVicinity vicinity =
-        ChildVicinity(xIndex: column, yIndex: row);
+            ChildVicinity(xIndex: column, yIndex: row);
         final RenderBox child = buildOrObtainChildFor(vicinity)!;
         childList[column - leadingColumn] = child;
         child.layout(constraints.loosen(), parentUsesSize: true);
         heightList.add(child.size.height);
-        parentDataOf(child).layoutOffset = Offset(xLayoutOffset, yLayoutOffset);
+        if (column < pinColumnCount ) {
+          double pinXLayoutOffset = _sum(widths.sublist(0,column));
+          parentDataOf(child).layoutOffset = Offset(
+            pinXLayoutOffset,
+            yLayoutOffset,
+          );
+        } else {
+          parentDataOf(child).layoutOffset =
+              Offset(xLayoutOffset, yLayoutOffset);
+        }
         xLayoutOffset += width[column];
       }
       double maxHeight = heightList.reduce(max);
-      if(heightList.toSet().length > 1){
-        for(int i=0;i<childList.length;i++){
-          childList[i]?.layout(BoxConstraints.tightFor(height: maxHeight), parentUsesSize: true);
+      if (heightList.toSet().length > 1) {
+        for (int i = 0; i < childList.length; i++) {
+          childList[i]?.layout(BoxConstraints.tightFor(height: maxHeight),
+              parentUsesSize: true);
         }
       }
       yLayoutOffset += maxHeight;
@@ -234,7 +289,41 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
       } else {
         rowHeightList.add(maxHeight);
       }
+      pinColumnWidth = xLayoutOffset;
     }
+    if (leadingColumn > 0) {
+      double pinyOffset =
+          calculateOffset(rowHeightList, leadingRow, verticalOffset.pixels);
+      for (int i = leadingRow; i < rowHeightList.length; i++) {
+        double pinXOffset = 0;
+        for (int j = 0; j < leadingColumn; j++) {
+          final ChildVicinity vicinity = ChildVicinity(xIndex: j, yIndex: i);
+          final RenderBox child = buildOrObtainChildFor(vicinity)!;
+          child.layout(BoxConstraints.tightFor(height: rowHeightList[i]),
+              parentUsesSize: true);
+          parentDataOf(child).layoutOffset = Offset(pinXOffset, pinyOffset);
+          pinXOffset += widths[j];
+        }
+        pinyOffset += rowHeightList[i];
+      }
+    }
+    firstNonPin = ChildVicinity(
+      xIndex: leadingColumn < pinColumnCount ? pinColumnCount : leadingColumn,
+      yIndex: leadingRow,
+    );
+    lastNonPin = ChildVicinity(
+      xIndex: trailingColumn,
+      yIndex: row,
+    );
+
+    firstPin = ChildVicinity(
+      xIndex: 0,
+      yIndex: leadingRow,
+    );
+    lastPin = ChildVicinity(
+      xIndex: pinColumnCount - 1,
+      yIndex: row,
+    );
     // Set the min and max scroll extents for each axis.
     final double verticalExtent = _sum(rowHeightList);
     verticalOffset.applyContentDimensions(
@@ -269,6 +358,89 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     return leadingColumn;
   }
 
+  final LayerHandle<ClipRectLayer> _clipCellsHandle =
+      LayerHandle<ClipRectLayer>();
+  final LayerHandle<ClipRectLayer> _clipPinnedColumnsHandle =
+      LayerHandle<ClipRectLayer>();
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    bool isTablePin = pinColumnCount > 0;
+    double pinColumnWidth = _sum(widths.sublist(0,pinColumnCount));
+    double pinRowExtend = 0;
+    if(!isTablePin){
+      super.paint(context, offset);
+    }
+    if (isTablePin) {
+      _clipCellsHandle.layer = context.pushClipRect(
+        needsCompositing,
+        offset,
+        Rect.fromLTWH(
+          pinColumnWidth,
+          pinRowExtend,
+          viewportDimension.width - pinColumnWidth,
+          viewportDimension.height - pinRowExtend,
+        ),
+        (PaintingContext context, Offset offset) {
+          _paintCells(
+            context: context,
+            offset: offset,
+            leading: firstNonPin!,
+            trailing: lastNonPin!,
+          );
+        },
+        clipBehavior: clipBehavior,
+        oldLayer: _clipCellsHandle.layer,
+      );
+    }
+
+    if (isTablePin) {
+      _clipPinnedColumnsHandle.layer = context.pushClipRect(
+        needsCompositing,
+        offset,
+        Rect.fromLTWH(
+          axisDirectionIsReversed(horizontalAxisDirection)
+              ? viewportDimension.width - pinColumnWidth
+              : 0.0,
+          axisDirectionIsReversed(verticalAxisDirection) ? 0.0 : 0,
+          pinColumnWidth,
+          viewportDimension.height - 0,
+        ),
+        (PaintingContext context, Offset offset) {
+          _paintCells(
+            context: context,
+            offset: offset,
+            leading: firstPin!,
+            trailing: lastPin!,
+          );
+        },
+        clipBehavior: clipBehavior,
+        oldLayer: _clipPinnedColumnsHandle.layer,
+      );
+    } else {
+      _clipPinnedColumnsHandle.layer = null;
+    }
+  }
+
+  void _paintCells({
+    required PaintingContext context,
+    required ChildVicinity leading,
+    required ChildVicinity trailing,
+    required Offset offset,
+  }) {
+    for (int column = leading.xIndex; column <= trailing.xIndex; column++) {
+      for (int row = leading.yIndex; row <= trailing.yIndex - 1; row++) {
+        final RenderBox cell = getChildFor(
+          ChildVicinity(xIndex: column, yIndex: row),
+        )!;
+        final cellParentData = parentDataOf(cell);
+        if (cellParentData.isVisible) {
+          context.paintChild(cell, offset + cellParentData.paintOffset!);
+        }
+      }
+    }
+  }
+
   int _calculateLeadingRow(double pixels, List<double> heights) {
     int leadingRow = 0;
     double currentHeight = 0;
@@ -284,12 +456,15 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     return leadingRow;
   }
 
-  double calculateOffset(List<double> widths, int index, double scrollOffset) {
+  double calculateOffset(List<double> widths, int index, double scrollOffset,
+      {bool isPin = false}) {
     double offset = 0;
     for (int i = 0; i < index; i++) {
       offset += widths[i];
     }
-    offset -= scrollOffset;
+    if (!isPin) {
+      offset -= scrollOffset;
+    }
     return offset;
   }
 
@@ -307,6 +482,7 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
 
     return math.min(index - 1, maxColumnIndex);
   }
+
   double _sum(List<double> numList) {
     var result = 0.0;
     for (var value in numList) {
