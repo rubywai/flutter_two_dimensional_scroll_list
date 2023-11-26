@@ -78,7 +78,7 @@ class MyHomePage extends StatelessWidget {
           controller: _verticalController,
           trackVisibility: true,
           thumbVisibility: true,
-          child: TwoDimensionalGridView(
+          child: TwoDimensionalTableView(
             horizontalDetails:
                 ScrollableDetails.horizontal(controller: _horizontalController),
             verticalDetails:
@@ -86,6 +86,14 @@ class MyHomePage extends StatelessWidget {
             diagonalDragBehavior: DiagonalDragBehavior.free,
             widths: width,
             pinColumnCount: 2,
+            gesture:  <Type, GestureRecognizerFactory>{
+              TapGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                    () => TapGestureRecognizer(),
+                    (TapGestureRecognizer t) =>
+                t.onTapDown = (_) => print('Tap row '),
+              ),
+            },
             tableGroupHeader: const {0: "header", 5: "header"},
             onMouseExit: (child) {
               // print('on mouse exit $child');
@@ -121,8 +129,8 @@ class MyHomePage extends StatelessWidget {
   }
 }
 
-class TwoDimensionalGridView extends TwoDimensionalScrollView {
-  const TwoDimensionalGridView({
+class TwoDimensionalTableView extends TwoDimensionalScrollView {
+  const TwoDimensionalTableView({
     super.key,
     super.primary,
     super.mainAxis = Axis.vertical,
@@ -139,12 +147,14 @@ class TwoDimensionalGridView extends TwoDimensionalScrollView {
     required this.tableGroupHeader,
     required this.onEvent,
     required this.onMouseExit,
+    required this.gesture,
   }) : super(delegate: delegate);
   final List<double> widths;
   final int pinColumnCount;
   final Map<int, String?> tableGroupHeader;
   final Function(ChildVicinity, PointerEvent) onEvent;
   final Function(ChildVicinity) onMouseExit;
+  final Map <Type, GestureRecognizerFactory> gesture;
 
   @override
   Widget buildViewport(
@@ -166,6 +176,7 @@ class TwoDimensionalGridView extends TwoDimensionalScrollView {
       tableGroupHeader: tableGroupHeader,
       onEvent: onEvent,
       onMouseExit: onMouseExit,
+      gesture: gesture,
     );
   }
 }
@@ -186,6 +197,7 @@ class TwoDimensionalGridViewport extends TwoDimensionalViewport {
     super.clipBehavior = Clip.hardEdge,
     required this.onEvent,
     required this.onMouseExit,
+    required this.gesture,
   });
 
   final List<double> widths;
@@ -193,6 +205,7 @@ class TwoDimensionalGridViewport extends TwoDimensionalViewport {
   final Map<int, String?> tableGroupHeader;
   final Function(ChildVicinity, PointerEvent) onEvent;
   final Function(ChildVicinity) onMouseExit;
+  final Map <Type, GestureRecognizerFactory> gesture;
 
   @override
   RenderTwoDimensionalViewport createRenderObject(BuildContext context) {
@@ -211,6 +224,7 @@ class TwoDimensionalGridViewport extends TwoDimensionalViewport {
       pinColumnCount: pinColumnCount,
       onEvent: onEvent,
       onMouseExit: onMouseExit,
+      gesture: gesture,
     );
   }
 
@@ -247,6 +261,7 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     super.clipBehavior = Clip.hardEdge,
     required this.onEvent,
     required this.onMouseExit,
+    required this.gesture,
   }) : super(delegate: delegate);
 
   List<double> rowHeightList = [];
@@ -261,6 +276,7 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
   List<TableGroupHeaderModel> tableGroupList = [];
   final Function(ChildVicinity, PointerEvent) onEvent;
   final Function(ChildVicinity) onMouseExit;
+  final Map <Type, GestureRecognizerFactory> gesture;
 
   @override
   void layoutChildSequence() {
@@ -557,16 +573,7 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
           row: cellParentData.vicinity.yIndex,
           onEvent: onEvent,
           onMouseExit: onMouseExit,
-          recognizerFactories: <Type, GestureRecognizerFactory>{
-            TapGestureRecognizer:
-                GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-              () => TapGestureRecognizer(),
-              (TapGestureRecognizer t) {
-                t.onTapDown = (_) => print('Tap row down');
-                t.onTapUp = (_) => print('Tap row up');
-              },
-            ),
-          },
+          recognizerFactories: gesture,
         );
         result.add(HitTestEntry(span));
         return true;
