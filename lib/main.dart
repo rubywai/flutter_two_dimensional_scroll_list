@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 void main() => runApp(const MyApp());
 
@@ -57,6 +58,8 @@ class MyHomePage extends StatelessWidget {
   final String title;
   final ScrollController _horizontalController = ScrollController();
   final ScrollController _verticalController = ScrollController();
+  ChildVicinity? child;
+  PointerEvent? event;
 
   MyHomePage({
     Key? key,
@@ -84,6 +87,12 @@ class MyHomePage extends StatelessWidget {
             widths: width,
             pinColumnCount: 2,
             tableGroupHeader: const {0: "header", 5: "header"},
+            onMouseExit: (child) {
+              // print('on mouse exit $child');
+            },
+            onEvent: (child, event) {
+              print('event $event');
+            },
             delegate: TwoDimensionalChildBuilderDelegate(
               maxXIndex: 19,
               maxYIndex: 19,
@@ -128,10 +137,14 @@ class TwoDimensionalGridView extends TwoDimensionalScrollView {
     required this.widths,
     required this.pinColumnCount,
     required this.tableGroupHeader,
+    required this.onEvent,
+    required this.onMouseExit,
   }) : super(delegate: delegate);
   final List<double> widths;
   final int pinColumnCount;
   final Map<int, String?> tableGroupHeader;
+  final Function(ChildVicinity, PointerEvent) onEvent;
+  final Function(ChildVicinity) onMouseExit;
 
   @override
   Widget buildViewport(
@@ -151,6 +164,8 @@ class TwoDimensionalGridView extends TwoDimensionalScrollView {
       widths: widths,
       pinColumnCount: pinColumnCount,
       tableGroupHeader: tableGroupHeader,
+      onEvent: onEvent,
+      onMouseExit: onMouseExit,
     );
   }
 }
@@ -169,11 +184,15 @@ class TwoDimensionalGridViewport extends TwoDimensionalViewport {
     super.cacheExtent,
     required this.tableGroupHeader,
     super.clipBehavior = Clip.hardEdge,
+    required this.onEvent,
+    required this.onMouseExit,
   });
 
   final List<double> widths;
   final int pinColumnCount;
   final Map<int, String?> tableGroupHeader;
+  final Function(ChildVicinity, PointerEvent) onEvent;
+  final Function(ChildVicinity) onMouseExit;
 
   @override
   RenderTwoDimensionalViewport createRenderObject(BuildContext context) {
@@ -190,6 +209,8 @@ class TwoDimensionalGridViewport extends TwoDimensionalViewport {
       tableGroupHeader: tableGroupHeader,
       widths: width,
       pinColumnCount: pinColumnCount,
+      onEvent: onEvent,
+      onMouseExit: onMouseExit,
     );
   }
 
@@ -224,6 +245,8 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     required this.tableGroupHeader,
     super.cacheExtent,
     super.clipBehavior = Clip.hardEdge,
+    required this.onEvent,
+    required this.onMouseExit,
   }) : super(delegate: delegate);
 
   List<double> rowHeightList = [];
@@ -236,6 +259,8 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
   final int pinColumnCount;
   double pinColumnWidth = 0;
   List<TableGroupHeaderModel> tableGroupList = [];
+  final Function(ChildVicinity, PointerEvent) onEvent;
+  final Function(ChildVicinity) onMouseExit;
 
   @override
   void layoutChildSequence() {
@@ -508,6 +533,49 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     }
   }
 
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    RenderBox? cell = firstChild;
+    while (cell != null) {
+      final cellParentData = parentDataOf(cell);
+      if (!cellParentData.isVisible) {
+        cell = childAfter(cell);
+        continue;
+      }
+      final Rect cellRect = cellParentData.paintOffset! & cell.size;
+      if (cellRect.contains(position)) {
+        result.addWithPaintOffset(
+          offset: cellParentData.paintOffset,
+          position: position,
+          hitTest: (BoxHitTestResult result, Offset transformed) {
+            assert(transformed == position - cellParentData.paintOffset!);
+            return cell!.hitTest(result, position: transformed);
+          },
+        );
+        final span = _Span(
+          column: cellParentData.vicinity.xIndex,
+          row: cellParentData.vicinity.yIndex,
+          onEvent: onEvent,
+          onMouseExit: onMouseExit,
+          recognizerFactories: <Type, GestureRecognizerFactory>{
+            TapGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+              () => TapGestureRecognizer(),
+              (TapGestureRecognizer t) {
+                t.onTapDown = (_) => print('Tap row down');
+                t.onTapUp = (_) => print('Tap row up');
+              },
+            ),
+          },
+        );
+        result.add(HitTestEntry(span));
+        return true;
+      }
+      cell = childAfter(cell);
+    }
+    return false;
+  }
+
   void _paintCells({
     required PaintingContext context,
     required ChildVicinity leading,
@@ -592,4 +660,95 @@ class TableGroupHeaderModel {
     required this.height,
     required this.width,
   });
+}
+
+class _Span
+    with Diagnosticable
+    implements HitTestTarget, MouseTrackerAnnotation {
+  final int row;
+  final int column;
+
+  _Span({
+    required this.column,
+    required this.row,
+    required this.onEvent,
+    required this.onMouseExit,
+    required this.recognizerFactories,
+  });
+
+  final Function(ChildVicinity childVicinity, PointerEvent event) onEvent;
+  final Function(ChildVicinity) onMouseExit;
+  final Map<Type, GestureRecognizerFactory> recognizerFactories;
+
+  Map<Type, GestureRecognizer>? _recognizers;
+
+  void _syncRecognizers() {
+    if (recognizerFactories.isEmpty) {
+      _disposeRecognizers();
+      return;
+    }
+    final Map<Type, GestureRecognizer> newRecognizers =
+        <Type, GestureRecognizer>{};
+    for (final Type type in recognizerFactories.keys) {
+      assert(!newRecognizers.containsKey(type));
+      newRecognizers[type] = _recognizers?.remove(type) ??
+          recognizerFactories[type]!.constructor();
+      assert(
+        newRecognizers[type].runtimeType == type,
+        'GestureRecognizerFactory of type $type created a GestureRecognizer of '
+        'type ${newRecognizers[type].runtimeType}. The '
+        'GestureRecognizerFactory must be specialized with the type of the '
+        'class that it returns from its constructor method.',
+      );
+      recognizerFactories[type]!.initializer(newRecognizers[type]!);
+    }
+    _disposeRecognizers();
+    _recognizers = newRecognizers;
+  }
+
+  void _disposeRecognizers() {
+    if (_recognizers != null) {
+      for (final GestureRecognizer recognizer in _recognizers!.values) {
+        recognizer.dispose();
+      }
+      _recognizers = null;
+    }
+  }
+
+  @override
+  void handleEvent(PointerEvent event, HitTestEntry entry) {
+    if (event is PointerDownEvent && recognizerFactories.isNotEmpty) {
+      if (_recognizers == null) {
+        _syncRecognizers();
+      }
+      assert(_recognizers != null);
+      for (final GestureRecognizer recognizer in _recognizers!.values) {
+        recognizer.addPointer(event);
+      }
+    }
+  }
+
+  @override
+  MouseCursor get cursor => MouseCursor.defer;
+
+  @override
+  PointerEnterEventListener? get onEnter => (enterEvent) {
+        onEvent(
+          ChildVicinity(xIndex: column, yIndex: row),
+          enterEvent,
+        );
+      };
+
+  @override
+  PointerExitEventListener? get onExit => (_) {
+        onMouseExit(
+          ChildVicinity(
+            xIndex: column,
+            yIndex: row,
+          ),
+        );
+      };
+
+  @override
+  bool get validForMouseTracker => true;
 }
