@@ -82,8 +82,8 @@ class MyHomePage extends StatelessWidget {
                 ScrollableDetails.vertical(controller: _verticalController),
             diagonalDragBehavior: DiagonalDragBehavior.free,
             widths: width,
-            pinColumnCount: 0,
-            tableGroupHeader: const {3: "header"},
+            pinColumnCount: 2,
+            tableGroupHeader: const {0: "header", 5: "header"},
             delegate: TwoDimensionalChildBuilderDelegate(
               maxXIndex: 19,
               maxYIndex: 19,
@@ -235,9 +235,11 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
   ChildVicinity? lastPin;
   final int pinColumnCount;
   double pinColumnWidth = 0;
+  List<TableGroupHeaderModel> tableGroupList = [];
 
   @override
   void layoutChildSequence() {
+    tableGroupList.clear();
     final double horizontalPixels = horizontalOffset.pixels;
     final double verticalPixels = verticalOffset.pixels;
     final double viewportHeight = viewportDimension.height + cacheExtent;
@@ -291,8 +293,9 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
         }
         xLayoutOffset += width[column];
       }
-
       double maxHeight = heightList.reduce(max);
+
+      //pin row render
       for (int j = 0; (j < leadingColumn && j < pinColumnCount); j++) {
         final ChildVicinity vicinity = ChildVicinity(xIndex: j, yIndex: row);
         final RenderBox child = buildOrObtainChildFor(vicinity)!;
@@ -307,11 +310,39 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
         parentDataOf(child).layoutOffset = Offset(pinXOffset, yLayoutOffset);
         pinXOffset += widths[j];
       }
+
+      //for equal height
       if (heightList.toSet().length > 1) {
         for (int i = 0; i < childList.length; i++) {
           childList[i]?.layout(BoxConstraints.tightFor(height: maxHeight),
               parentUsesSize: true);
         }
+      }
+      //header
+      if (isTableGroupHeaders) {
+        RenderBox firstChild;
+        if (leadingColumn > 0 && pinColumnCount > 0) {
+          final ChildVicinity vicinity = ChildVicinity(xIndex: 0, yIndex: row);
+          firstChild = getChildFor(vicinity)!;
+        } else {
+          firstChild = childList.first!;
+        }
+        firstChild.layout(
+            BoxConstraints.tightFor(
+              height: maxHeight,
+              width: viewportWidth,
+            ),
+            parentUsesSize: true);
+        parentDataOf(firstChild).layoutOffset = Offset(0, yLayoutOffset);
+        tableGroupList.add(
+          TableGroupHeaderModel(
+            x: 0,
+            y: yLayoutOffset,
+            row: row,
+            height: maxHeight,
+            width: viewportWidth,
+          ),
+        );
       }
       //increase height
       yLayoutOffset += maxHeight;
@@ -397,29 +428,6 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
       super.paint(context, offset);
     }
     if (isTablePin) {
-      _clipCellsHandle.layer = context.pushClipRect(
-        needsCompositing,
-        offset,
-        Rect.fromLTWH(
-          pinColumnWidth,
-          pinRowExtend,
-          viewportDimension.width - pinColumnWidth,
-          viewportDimension.height - pinRowExtend,
-        ),
-        (PaintingContext context, Offset offset) {
-          _paintCells(
-            context: context,
-            offset: offset,
-            leading: firstNonPin!,
-            trailing: lastNonPin!,
-          );
-        },
-        clipBehavior: clipBehavior,
-        oldLayer: _clipCellsHandle.layer,
-      );
-    }
-
-    if (isTablePin) {
       _clipPinnedColumnsHandle.layer = context.pushClipRect(
         needsCompositing,
         offset,
@@ -444,6 +452,59 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
       );
     } else {
       _clipPinnedColumnsHandle.layer = null;
+    }
+    if (isTablePin) {
+      _clipCellsHandle.layer = context.pushClipRect(
+        needsCompositing,
+        offset,
+        Rect.fromLTWH(
+          pinColumnWidth,
+          pinRowExtend,
+          viewportDimension.width - pinColumnWidth,
+          viewportDimension.height - pinRowExtend,
+        ),
+        (PaintingContext context, Offset offset) {
+          _paintCells(
+            context: context,
+            offset: offset,
+            leading: firstNonPin!,
+            trailing: lastNonPin!,
+          );
+        },
+        clipBehavior: clipBehavior,
+        oldLayer: _clipCellsHandle.layer,
+      );
+    } else {
+      _clipCellsHandle.layer = null;
+    }
+    List groupHeaderHandleList = List.generate(
+      tableGroupList.length,
+      (_) => LayerHandle<ClipRectLayer>(),
+    );
+    for (int i = 0; i < tableGroupList.length; i++) {
+      final header = tableGroupList[i];
+      final layerHandle = LayerHandle<ClipRectLayer>();
+      layerHandle.layer = context.pushClipRect(
+        needsCompositing,
+        offset,
+        Rect.fromLTWH(
+          header.x,
+          header.y,
+          header.width,
+          header.height,
+        ),
+        (PaintingContext context, Offset offset) {
+          _paintCells(
+            context: context,
+            offset: offset,
+            leading: ChildVicinity(xIndex: 0, yIndex: header.row),
+            trailing: ChildVicinity(xIndex: 0, yIndex: header.row + 1),
+          );
+        },
+        clipBehavior: clipBehavior,
+        oldLayer: groupHeaderHandleList[i].layer,
+      );
+      groupHeaderHandleList.add(layerHandle);
     }
   }
 
@@ -515,4 +576,20 @@ class RenderTwoDimensionalGridViewport extends RenderTwoDimensionalViewport {
     }
     return result;
   }
+}
+
+class TableGroupHeaderModel {
+  final double x;
+  final double y;
+  final int row;
+  final double height;
+  final double width;
+
+  TableGroupHeaderModel({
+    required this.x,
+    required this.y,
+    required this.row,
+    required this.height,
+    required this.width,
+  });
 }
